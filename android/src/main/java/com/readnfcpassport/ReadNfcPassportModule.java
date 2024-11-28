@@ -35,6 +35,7 @@ import org.jmrtd.lds.CardAccessFile;
 import org.jmrtd.lds.PACEInfo;
 import org.jmrtd.lds.SODFile;
 import org.jmrtd.lds.SecurityInfo;
+import org.jmrtd.lds.icao.DG11File;
 import org.jmrtd.lds.icao.DG1File;
 import org.jmrtd.lds.icao.DG2File;
 import org.jmrtd.lds.icao.MRZInfo;
@@ -47,7 +48,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.security.PublicKey;
 import java.security.Security;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -293,7 +296,9 @@ public class ReadNfcPassportModule extends ReactContextBaseJavaModule implements
 
       private DG1File dg1File;
       private DG2File dg2File;
+      private DG11File dg11File;
       private Bitmap bitmap;
+      X509Certificate signingCert;
 
       @Override
       protected Exception doInBackground(Void... params) {
@@ -332,6 +337,25 @@ public class ReadNfcPassportModule extends ReactContextBaseJavaModule implements
                       service.doBAC(bacKey);
                   }
               }
+
+            try {
+                InputStream sodInputStream = service.getInputStream(PassportService.EF_SOD);
+                SODFile sodFile = new SODFile(sodInputStream);
+                signingCert = (X509Certificate) sodFile.getDocSigningCertificate();
+
+
+                Log.d(TAG, "signature_issuer: " + signingCert.getIssuerDN().getName());
+            } catch (Exception e) {
+                Log.d(TAG, "Read signature error: " + e.getMessage());
+            }
+
+              try {
+                InputStream dg11In = service.getInputStream(PassportService.EF_DG11);
+                dg11File = new DG11File(dg11In);
+              } catch (Exception e) {
+                  Log.d(TAG, "Read DG11 error: " + e.getMessage());
+                  Log.w(TAG, e);
+              } 
 
               InputStream dg1In = service.getInputStream(PassportService.EF_DG1);
               dg1File = new DG1File(dg1In);
@@ -408,6 +432,16 @@ public class ReadNfcPassportModule extends ReactContextBaseJavaModule implements
               passport.putString(PARAM_DOB, mrzInfo.getDateOfBirth());
               passport.putString(PARAM_DOE, mrzInfo.getDateOfExpiry());
               passport.putString(MRZ, mrzInfo.toString().replace("\n", ""));
+              if (dg11File != null) {
+                passport.putString("address", "size: " + dg11File.getPermanentAddress().size());
+              }
+              else
+                passport.putString("address", "empty");
+
+              if (signingCert != null)
+                passport.putString("signingCert", signingCert.getIssuerDN().getName());
+
+
 
               scanPromise.resolve(passport);
               resetState();
